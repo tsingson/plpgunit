@@ -19,954 +19,1075 @@ FOR A PARTICULAR PURPOSE. THE SOFTWARE PROVIDED HEREUNDER IS ON AN "AS IS" BASIS
 AND MIX OPEN FOUNDATION HAS NO OBLIGATIONS TO PROVIDE MAINTENANCE, SUPPORT, 
 UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
 ***********************************************************************************/
-
-CREATE SCHEMA IF NOT EXISTS assert;
-CREATE SCHEMA IF NOT EXISTS unit_tests;
-
-DO 
-$$
-BEGIN
-    IF NOT EXISTS 
-    (
-        SELECT * FROM pg_type
-        WHERE 
-            typname ='test_result'
-        AND 
-            typnamespace = 
-            (
-                SELECT oid FROM pg_namespace 
-                WHERE nspname ='public'
-            )
-    ) THEN
-        CREATE DOMAIN public.test_result AS text;
-    END IF;
-END
-$$
-LANGUAGE plpgsql;
+create schema if not exists assert;
+create schema if not exists unit_tests;
 
 
-DROP TABLE IF EXISTS unit_tests.test_details CASCADE;
-DROP TABLE IF EXISTS unit_tests.tests CASCADE;
-DROP TABLE IF EXISTS unit_tests.dependencies CASCADE;
-CREATE TABLE unit_tests.tests
+set search_path = assert, unit_tests;
+-- create domain public.test_result as text;
+do $$
+    begin
+        if not EXISTS(select *
+                      from
+                          pg_type
+                      where
+                          typname = 'test_result' and
+                              typnamespace = (
+                              select
+                                  oid
+                              from
+                                  pg_namespace
+                              where
+                                  nspname = 'unit_tests' ))
+            then create domain unit_tests.test_result as text;
+        end if;
+    end
+$$ language plpgsql;
+
+
+drop table if exists unit_tests.test_details cascade;
+drop table if exists unit_tests.tests cascade;
+drop table if exists unit_tests.dependencies cascade;
+create table unit_tests.tests
 (
-    test_id                                 SERIAL NOT NULL PRIMARY KEY,
-    started_on                              TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'),
-    completed_on                            TIMESTAMP WITHOUT TIME ZONE NULL,
-    total_tests                             integer NULL DEFAULT(0),
-    failed_tests                            integer NULL DEFAULT(0),
-    skipped_tests                           integer NULL DEFAULT(0)
+test_id serial not null primary key,
+started_on timestamp without time zone not null default ( CURRENT_TIMESTAMP at time zone 'UTC' ),
+completed_on timestamp without time zone null,
+total_tests integer null default ( 0 ),
+failed_tests integer null default ( 0 ),
+skipped_tests integer null default ( 0 )
 );
 
-CREATE INDEX unit_tests_tests_started_on_inx
-ON unit_tests.tests(started_on);
+create index unit_tests_tests_started_on_inx on unit_tests.tests( started_on );
 
-CREATE INDEX unit_tests_tests_completed_on_inx
-ON unit_tests.tests(completed_on);
+create index unit_tests_tests_completed_on_inx on unit_tests.tests( completed_on );
 
-CREATE INDEX unit_tests_tests_failed_tests_inx
-ON unit_tests.tests(failed_tests);
+create index unit_tests_tests_failed_tests_inx on unit_tests.tests( failed_tests );
 
-CREATE TABLE unit_tests.test_details
+create table unit_tests.test_details
 (
-    id                                      BIGSERIAL NOT NULL PRIMARY KEY,
-    test_id                                 integer NOT NULL REFERENCES unit_tests.tests(test_id),
-    function_name                           text NOT NULL,
-    message                                 text NOT NULL,
-    ts                                      TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'),
-    status                                  boolean NOT NULL,
-    executed                                boolean NOT NULL
+id bigserial not null primary key,
+test_id integer not null references unit_tests.tests( test_id ),
+function_name text not null,
+message text not null,
+ts timestamp without time zone not null default ( CURRENT_TIMESTAMP at time zone 'UTC' ),
+status boolean not null,
+executed boolean not null
 );
 
-CREATE INDEX unit_tests_test_details_test_id_inx
-ON unit_tests.test_details(test_id);
+create index unit_tests_test_details_test_id_inx on unit_tests.test_details( test_id );
 
-CREATE INDEX unit_tests_test_details_status_inx
-ON unit_tests.test_details(status);
+create index unit_tests_test_details_status_inx on unit_tests.test_details( status );
 
-CREATE TABLE unit_tests.dependencies
+create table unit_tests.dependencies
 (
-    dependency_id                           BIGSERIAL NOT NULL PRIMARY KEY,
-    dependent_ns                            text,
-    dependent_function_name                 text NOT NULL,
-    depends_on_ns                           text,
-    depends_on_function_name                text NOT NULL
+dependency_id bigserial not null primary key,
+dependent_ns text,
+dependent_function_name text not null,
+depends_on_ns text,
+depends_on_function_name text not null
 );
 
-CREATE INDEX unit_tests_dependencies_dependency_id_inx
-ON unit_tests.dependencies(dependency_id);
+create index unit_tests_dependencies_dependency_id_inx on unit_tests.dependencies( dependency_id );
 
 
-DROP FUNCTION IF EXISTS assert.fail(message text);
-CREATE FUNCTION assert.fail(message text)
-RETURNS text
-AS
-$$
-BEGIN
-    IF $1 IS NULL OR trim($1) = '' THEN
-        message := 'NO REASON SPECIFIED';
-    END IF;
-    
-    RAISE WARNING 'ASSERT FAILED : %', message;
-    RETURN message;
-END
-$$
-LANGUAGE plpgsql
-IMMUTABLE STRICT;
+drop function if exists assert.fail(message text
+);
+create function assert.fail
+(message text
+) returns text
+as $$
+begin
+    if $1 is null or trim($1) = ''
+        then
+            message := 'NO REASON SPECIFIED';
+    end if;
+    raise warning 'ASSERT FAILED : %', message;
+    return message;
+end
+$$ language plpgsql immutable
+                    strict;
 
-DROP FUNCTION IF EXISTS assert.pass(message text);
-CREATE FUNCTION assert.pass(message text)
-RETURNS text
-AS
-$$
-BEGIN
-    RAISE NOTICE 'ASSERT PASSED : %', message;
-    RETURN '';
-END
-$$
-LANGUAGE plpgsql
-IMMUTABLE STRICT;
+drop function if exists assert.pass(message text
+);
+create function assert.pass
+(message text
+) returns text
+as $$
+begin
+    raise notice 'ASSERT PASSED : %', message;
+    return '';
+end
+$$ language plpgsql immutable
+                    strict;
 
-DROP FUNCTION IF EXISTS assert.ok(message text);
-CREATE FUNCTION assert.ok(message text)
-RETURNS text
-AS
-$$
-BEGIN
-    RAISE NOTICE 'OK : %', message;
-    RETURN '';
-END
-$$
-LANGUAGE plpgsql
-IMMUTABLE STRICT;
+drop function if exists assert.ok(message text
+);
+create function assert.ok
+(message text
+) returns text
+as $$
+begin
+    raise notice 'OK : %', message;
+    return '';
+end
+$$ language plpgsql immutable
+                    strict;
 
-DROP FUNCTION IF EXISTS assert.is_equal(IN have anyelement, IN want anyelement, OUT message text, OUT result boolean);
-CREATE FUNCTION assert.is_equal(IN have anyelement, IN want anyelement, OUT message text, OUT result boolean)
-AS
-$$
-BEGIN
-    IF($1 IS NOT DISTINCT FROM $2) THEN
-        message := 'Assert is equal.';
-        PERFORM assert.ok(message);
-        result := true;
-        RETURN;
-    END IF;
-    
-    message := E'ASSERT IS_EQUAL FAILED.\n\nHave -> ' || COALESCE($1::text, 'NULL') || E'\nWant -> ' || COALESCE($2::text, 'NULL') || E'\n';    
-    PERFORM assert.fail(message);
+drop function if exists assert.is_equal(in have anyelement,in want anyelement,out message text,out result boolean
+);
+create function assert.is_equal
+(in have anyelement,
+ in want anyelement,
+ out message text,
+ out result boolean
+)
+as $$
+begin
+    if ( $1 is not distinct from $2 )
+        then
+            message := 'Assert is equal.';
+            perform assert.ok(message);
+            result := true;
+            return;
+    end if;
+    message := E'ASSERT IS_EQUAL FAILED.\n\nHave -> ' || COALESCE($1::text, 'NULL') || E'\nWant -> ' ||
+               COALESCE($2::text, 'NULL') || E'\n';
+    perform assert.fail(message);
     result := false;
-    RETURN;
-END
-$$
-LANGUAGE plpgsql
-IMMUTABLE;
+    return;
+end
+$$ language plpgsql immutable;
 
 
-DROP FUNCTION IF EXISTS assert.are_equal(VARIADIC anyarray, OUT message text, OUT result boolean);
-CREATE FUNCTION assert.are_equal(VARIADIC anyarray, OUT message text, OUT result boolean)
-AS
-$$
-    DECLARE count integer=0;
-    DECLARE total_items bigint;
-    DECLARE total_rows bigint;
-BEGIN
+drop function if exists assert.are_equal(variadic anyarray,out message text,out result boolean
+);
+create function assert.are_equal
+(variadic anyarray,
+ out message text,
+ out result boolean
+)
+as $$
+declare
+    count integer=0; declare
+    total_items bigint; declare
+    total_rows bigint;
+begin
     result := false;
-    
-    WITH counter
-    AS
-    (
-        SELECT *
-        FROM explode_array($1) AS items
-    )
-    SELECT
+    with
+        counter as (
+            select *
+            from
+                explode_array($1) as items )
+    select
         COUNT(items),
         COUNT(*)
-    INTO
-        total_items,
-        total_rows
-    FROM counter;
-
-    IF(total_items = 0 OR total_items = total_rows) THEN
-        result := true;
-    END IF;
-
-    IF(result AND total_items > 0) THEN
-        SELECT COUNT(DISTINCT $1[s.i])
-        INTO count
-        FROM generate_series(array_lower($1,1), array_upper($1,1)) AS s(i)
-        ORDER BY 1;
-
-        IF count <> 1 THEN
-            result := FALSE;
-        END IF;
-    END IF;
-
-    IF(NOT result) THEN
-        message := 'ASSERT ARE_EQUAL FAILED.';  
-        PERFORM assert.fail(message);
-        RETURN;
-    END IF;
-
+    into total_items, total_rows
+    from
+        counter;
+    if ( total_items = 0 or total_items = total_rows )
+        then
+            result := true;
+    end if;
+    if ( result and total_items > 0 )
+        then
+            select
+                COUNT(distinct $1[s.i])
+            into count
+            from
+                generate_series(array_lower($1, 1), array_upper($1, 1)) as s( i )
+            order by 1;
+            if count <> 1
+                then
+                    result := false;
+            end if;
+    end if;
+    if ( not result )
+        then
+            message := 'ASSERT ARE_EQUAL FAILED.';
+            perform assert.fail(message);
+            return;
+    end if;
     message := 'Asserts are equal.';
-    PERFORM assert.ok(message);
+    perform assert.ok(message);
     result := true;
-    RETURN;
-END
-$$
-LANGUAGE plpgsql
-IMMUTABLE;
+    return;
+end
+$$ language plpgsql immutable;
 
-DROP FUNCTION IF EXISTS assert.is_not_equal(IN already_have anyelement, IN dont_want anyelement, OUT message text, OUT result boolean);
-CREATE FUNCTION assert.is_not_equal(IN already_have anyelement, IN dont_want anyelement, OUT message text, OUT result boolean)
-AS
-$$
-BEGIN
-    IF($1 IS DISTINCT FROM $2) THEN
-        message := 'Assert is not equal.';
-        PERFORM assert.ok(message);
-        result := true;
-        RETURN;
-    END IF;
-    
-    message := E'ASSERT IS_NOT_EQUAL FAILED.\n\nAlready Have -> ' || COALESCE($1::text, 'NULL') || E'\nDon''t Want   -> ' || COALESCE($2::text, 'NULL') || E'\n';   
-    PERFORM assert.fail(message);
+drop function if exists assert.is_not_equal(in already_have anyelement,in dont_want anyelement,out message text,out result boolean
+);
+create function assert.is_not_equal
+(in already_have anyelement,
+ in dont_want anyelement,
+ out message text,
+ out result boolean
+)
+as $$
+begin
+    if ( $1 is distinct from $2 )
+        then
+            message := 'Assert is not equal.';
+            perform assert.ok(message);
+            result := true;
+            return;
+    end if;
+    message := E'ASSERT IS_NOT_EQUAL FAILED.\n\nAlready Have -> ' || COALESCE($1::text, 'NULL') ||
+               E'\nDon''t Want   -> ' || COALESCE($2::text, 'NULL') || E'\n';
+    perform assert.fail(message);
     result := false;
-    RETURN;
-END
-$$
-LANGUAGE plpgsql
-IMMUTABLE;
+    return;
+end
+$$ language plpgsql immutable;
 
-DROP FUNCTION IF EXISTS assert.are_not_equal(VARIADIC anyarray, OUT message text, OUT result boolean);
-CREATE FUNCTION assert.are_not_equal(VARIADIC anyarray, OUT message text, OUT result boolean)
-AS
-$$
-    DECLARE count integer=0;
-    DECLARE count_nulls bigint;
-BEGIN    
-    SELECT COUNT(*)
-    INTO count_nulls
-    FROM explode_array($1) AS items
-    WHERE items IS NULL;
-
-    SELECT COUNT(DISTINCT $1[s.i]) INTO count
-    FROM generate_series(array_lower($1,1), array_upper($1,1)) AS s(i)
-    ORDER BY 1;
-    
-    IF(count + count_nulls <> array_upper($1,1) OR count_nulls > 1) THEN
-        message := 'ASSERT ARE_NOT_EQUAL FAILED.';  
-        PERFORM assert.fail(message);
-        RESULT := FALSE;
-        RETURN;
-    END IF;
-
+drop function if exists assert.are_not_equal(variadic anyarray,out message text,out result boolean
+);
+create function assert.are_not_equal
+(variadic anyarray,
+ out message text,
+ out result boolean
+)
+as $$
+declare
+    count integer=0; declare
+    count_nulls bigint;
+begin
+    select
+        COUNT(*)
+    into count_nulls
+    from
+        explode_array($1) as items
+    where
+        items is null;
+    select
+        COUNT(distinct $1[s.i])
+    into count
+    from
+        generate_series(array_lower($1, 1), array_upper($1, 1)) as s( i )
+    order by 1;
+    if ( count + count_nulls <> array_upper($1, 1) or count_nulls > 1 )
+        then
+            message := 'ASSERT ARE_NOT_EQUAL FAILED.';
+            perform assert.fail(message);
+            result := false;
+            return;
+    end if;
     message := 'Asserts are not equal.';
-    PERFORM assert.ok(message);
+    perform assert.ok(message);
     result := true;
-    RETURN;
-END
-$$
-LANGUAGE plpgsql
-IMMUTABLE;
+    return;
+end
+$$ language plpgsql immutable;
 
 
-DROP FUNCTION IF EXISTS assert.is_null(IN anyelement, OUT message text, OUT result boolean);
-CREATE FUNCTION assert.is_null(IN anyelement, OUT message text, OUT result boolean)
-AS
-$$
-BEGIN
-    IF($1 IS NULL) THEN
-        message := 'Assert is NULL.';
-        PERFORM assert.ok(message);
-        result := true;
-        RETURN;
-    END IF;
-    
-    message := E'ASSERT IS_NULL FAILED. NULL value was expected.\n\n\n';    
-    PERFORM assert.fail(message);
+drop function if exists assert.is_null(in anyelement,out message text,out result boolean
+);
+create function assert.is_null
+(in anyelement,
+ out message text,
+ out result boolean
+)
+as $$
+begin
+    if ( $1 is null )
+        then
+            message := 'Assert is NULL.';
+            perform assert.ok(message);
+            result := true;
+            return;
+    end if;
+    message := E'ASSERT IS_NULL FAILED. NULL value was expected.\n\n\n';
+    perform assert.fail(message);
     result := false;
-    RETURN;
-END
-$$
-LANGUAGE plpgsql
-IMMUTABLE;
+    return;
+end
+$$ language plpgsql immutable;
 
-DROP FUNCTION IF EXISTS assert.is_not_null(IN anyelement, OUT message text, OUT result boolean);
-CREATE FUNCTION assert.is_not_null(IN anyelement, OUT message text, OUT result boolean)
-AS
-$$
-BEGIN
-    IF($1 IS NOT NULL) THEN
-        message := 'Assert is not NULL.';
-        PERFORM assert.ok(message);
-        result := true;
-        RETURN;
-    END IF;
-    
-    message := E'ASSERT IS_NOT_NULL FAILED. The value is NULL.\n\n\n';  
-    PERFORM assert.fail(message);
+drop function if exists assert.is_not_null(in anyelement,out message text,out result boolean
+);
+create function assert.is_not_null
+(in anyelement,
+ out message text,
+ out result boolean
+)
+as $$
+begin
+    if ( $1 is not null )
+        then
+            message := 'Assert is not NULL.';
+            perform assert.ok(message);
+            result := true;
+            return;
+    end if;
+    message := E'ASSERT IS_NOT_NULL FAILED. The value is NULL.\n\n\n';
+    perform assert.fail(message);
     result := false;
-    RETURN;
-END
-$$
-LANGUAGE plpgsql
-IMMUTABLE;
+    return;
+end
+$$ language plpgsql immutable;
 
-DROP FUNCTION IF EXISTS assert.is_true(IN boolean, OUT message text, OUT result boolean);
-CREATE FUNCTION assert.is_true(IN boolean, OUT message text, OUT result boolean)
-AS
-$$
-BEGIN
-    IF($1) THEN
-        message := 'Assert is true.';
-        PERFORM assert.ok(message);
-        result := true;
-        RETURN;
-    END IF;
-    
-    message := E'ASSERT IS_TRUE FAILED. A true condition was expected.\n\n\n';  
-    PERFORM assert.fail(message);
+drop function if exists assert.is_true(in boolean,out message text,out result boolean
+);
+create function assert.is_true
+(in boolean,
+ out message text,
+ out result boolean
+)
+as $$
+begin
+    if ( $1 )
+        then
+            message := 'Assert is true.';
+            perform assert.ok(message);
+            result := true;
+            return;
+    end if;
+    message := E'ASSERT IS_TRUE FAILED. A true condition was expected.\n\n\n';
+    perform assert.fail(message);
     result := false;
-    RETURN;
-END
-$$
-LANGUAGE plpgsql
-IMMUTABLE;
+    return;
+end
+$$ language plpgsql immutable;
 
-DROP FUNCTION IF EXISTS assert.is_false(IN boolean, OUT message text, OUT result boolean);
-CREATE FUNCTION assert.is_false(IN boolean, OUT message text, OUT result boolean)
-AS
-$$
-BEGIN
-    IF(NOT $1) THEN
-        message := 'Assert is false.';
-        PERFORM assert.ok(message);
-        result := true;
-        RETURN;
-    END IF;
-    
-    message := E'ASSERT IS_FALSE FAILED. A false condition was expected.\n\n\n';    
-    PERFORM assert.fail(message);
+drop function if exists assert.is_false(in boolean,out message text,out result boolean
+);
+create function assert.is_false
+(in boolean,
+ out message text,
+ out result boolean
+)
+as $$
+begin
+    if ( not $1 )
+        then
+            message := 'Assert is false.';
+            perform assert.ok(message);
+            result := true;
+            return;
+    end if;
+    message := E'ASSERT IS_FALSE FAILED. A false condition was expected.\n\n\n';
+    perform assert.fail(message);
     result := false;
-    RETURN;
-END
-$$
-LANGUAGE plpgsql
-IMMUTABLE;
+    return;
+end
+$$ language plpgsql immutable;
 
-DROP FUNCTION IF EXISTS assert.is_greater_than(IN x anyelement, IN y anyelement, OUT message text, OUT result boolean);
-CREATE FUNCTION assert.is_greater_than(IN x anyelement, IN y anyelement, OUT message text, OUT result boolean)
-AS
-$$
-BEGIN
-    IF($1 > $2) THEN
-        message := 'Assert greater than condition is satisfied.';
-        PERFORM assert.ok(message);
-        result := true;
-        RETURN;
-    END IF;
-    
-    message := E'ASSERT IS_GREATER_THAN FAILED.\n\n X : -> ' || COALESCE($1::text, 'NULL') || E'\n is not greater than Y:   -> ' || COALESCE($2::text, 'NULL') || E'\n';    
-    PERFORM assert.fail(message);
+drop function if exists assert.is_greater_than(in x anyelement,in y anyelement,out message text,out result boolean
+);
+create function assert.is_greater_than
+(in x anyelement,
+ in y anyelement,
+ out message text,
+ out result boolean
+)
+as $$
+begin
+    if ( $1 > $2 )
+        then
+            message := 'Assert greater than condition is satisfied.';
+            perform assert.ok(message);
+            result := true;
+            return;
+    end if;
+    message := E'ASSERT IS_GREATER_THAN FAILED.\n\n X : -> ' || COALESCE($1::text, 'NULL') ||
+               E'\n is not greater than Y:   -> ' || COALESCE($2::text, 'NULL') || E'\n';
+    perform assert.fail(message);
     result := false;
-    RETURN;
-END
-$$
-LANGUAGE plpgsql
-IMMUTABLE;
+    return;
+end
+$$ language plpgsql immutable;
 
-DROP FUNCTION IF EXISTS assert.is_less_than(IN x anyelement, IN y anyelement, OUT message text, OUT result boolean);
-CREATE FUNCTION assert.is_less_than(IN x anyelement, IN y anyelement, OUT message text, OUT result boolean)
-AS
-$$
-BEGIN
-    IF($1 < $2) THEN
-        message := 'Assert less than condition is satisfied.';
-        PERFORM assert.ok(message);
-        result := true;
-        RETURN;
-    END IF;
-    
-    message := E'ASSERT IS_LESS_THAN FAILED.\n\n X : -> ' || COALESCE($1::text, 'NULL') || E'\n is not less than Y:   -> ' || COALESCE($2::text, 'NULL') || E'\n';  
-    PERFORM assert.fail(message);
+drop function if exists assert.is_less_than(in x anyelement,in y anyelement,out message text,out result boolean
+);
+create function assert.is_less_than
+(in x anyelement,
+ in y anyelement,
+ out message text,
+ out result boolean
+)
+as $$
+begin
+    if ( $1 < $2 )
+        then
+            message := 'Assert less than condition is satisfied.';
+            perform assert.ok(message);
+            result := true;
+            return;
+    end if;
+    message := E'ASSERT IS_LESS_THAN FAILED.\n\n X : -> ' || COALESCE($1::text, 'NULL') ||
+               E'\n is not less than Y:   -> ' || COALESCE($2::text, 'NULL') || E'\n';
+    perform assert.fail(message);
     result := false;
-    RETURN;
-END
-$$
-LANGUAGE plpgsql
-IMMUTABLE;
+    return;
+end
+$$ language plpgsql immutable;
 
-DROP FUNCTION IF EXISTS assert.function_exists(function_name text, OUT message text, OUT result boolean);
-CREATE FUNCTION assert.function_exists(function_name text, OUT message text, OUT result boolean)
-AS
-$$
-BEGIN
-    IF NOT EXISTS
-    (
-        SELECT  1
-        FROM    pg_catalog.pg_namespace n
-        JOIN    pg_catalog.pg_proc p
-        ON      pronamespace = n.oid
-        WHERE replace(nspname || '.' || proname || '(' || oidvectortypes(proargtypes) || ')', ' ' , '')::text=$1
-    ) THEN
-        message := format('The function %s does not exist.', $1);
-        PERFORM assert.fail(message);
-
-        result := false;
-        RETURN;
-    END IF;
-
+drop function if exists assert.function_exists(function_name text,out message text,out result boolean
+);
+create function assert.function_exists
+(function_name text,
+ out message text,
+ out result boolean
+)
+as $$
+begin
+    if not EXISTS(select
+                      1
+                  from
+                      pg_catalog.pg_namespace n
+                      join pg_catalog.pg_proc p
+                           on pronamespace = n.oid
+                  where
+                          replace(nspname || '.' || proname || '(' || oidvectortypes(proargtypes) || ')', ' ',
+                                  '')::text = $1)
+        then
+            message := format('The function %s does not exist.', $1);
+            perform assert.fail(message);
+            result := false;
+            return;
+    end if;
     message := format('Ok. The function %s exists.', $1);
-    PERFORM assert.ok(message);
+    perform assert.ok(message);
     result := true;
-    RETURN;
-END
-$$
-LANGUAGE plpgsql;
+    return;
+end
+$$ language plpgsql;
 
-DROP FUNCTION IF EXISTS assert.if_functions_compile(VARIADIC _schema_name text[], OUT message text, OUT result boolean);
-CREATE OR REPLACE FUNCTION assert.if_functions_compile
-(
-    VARIADIC _schema_name text[],
-    OUT message text, 
-    OUT result boolean
+drop function if exists assert.if_functions_compile(variadic _schema_name text[],out message text,out result boolean
+);
+create or replace function assert.if_functions_compile
+(variadic _schema_name text[],
+ out message text,
+ out result boolean
 )
-AS
-$$
-    DECLARE all_parameters              text;
-    DECLARE current_function            RECORD;
-    DECLARE current_function_name       text;
-    DECLARE current_type                text;
-    DECLARE current_type_schema         text;
-    DECLARE current_parameter           text;
-    DECLARE functions_count             smallint := 0;
-    DECLARE current_parameters_count    int;
-    DECLARE i                           int;
-    DECLARE command_text                text;
-    DECLARE failed_functions            text;
-BEGIN
-    FOR current_function IN 
-        SELECT proname, proargtypes, nspname 
-        FROM pg_proc 
-        INNER JOIN pg_namespace 
-        ON pg_proc.pronamespace = pg_namespace.oid 
-        WHERE pronamespace IN 
-        (
-            SELECT oid FROM pg_namespace 
-            WHERE nspname = ANY($1) 
-            AND nspname NOT IN
+as $$
+declare
+    all_parameters text; declare
+    current_function record; declare
+    current_function_name text; declare
+    current_type text; declare
+    current_type_schema text; declare
+    current_parameter text; declare
+    functions_count smallint := 0; declare
+    current_parameters_count int; declare
+    i int; declare
+    command_text text; declare
+    failed_functions text;
+begin
+    for current_function in select
+                                proname,
+                                proargtypes,
+                                nspname
+                            from
+                                pg_proc
+                                inner join pg_namespace
+                                           on pg_proc.pronamespace = pg_namespace.oid
+                            where
+                                    pronamespace in (
+                                    select
+                                        oid
+                                    from
+                                        pg_namespace
+                                    where
+                                        nspname = any ( $1 ) and
+                                        nspname not in ( 'assert','unit_tests','information_schema' ) and
+                                        proname not in ( 'if_functions_compile' ) )
+        loop
+            current_parameters_count := array_upper(current_function.proargtypes, 1) + 1;
+            i := 0;
+            all_parameters := '';
+            loop
+                if i < current_parameters_count
+                    then
+                        if i > 0
+                            then
+                                all_parameters := all_parameters || ', ';
+                        end if;
+                        select
+                            nspname,
+                            typname
+                        into current_type_schema, current_type
+                        from
+                            pg_type
+                            inner join pg_namespace
+                                       on pg_type.typnamespace = pg_namespace.oid
+                        where
+                            pg_type.oid = current_function.proargtypes[i];
+                        if ( current_type in ( 'int4','int8','numeric','integer_strict','money_strict','decimal_strict',
+                                               'integer_strict2','money_strict2','decimal_strict2','money','decimal',
+                                               'numeric','bigint' ) )
+                            then
+                                current_parameter := '1::' || current_type_schema || '.' || current_type;
+                            elsif ( substring(current_type, 1, 1) = '_' )
+                                then
+                                    current_parameter := 'NULL::' || current_type_schema || '.' ||
+                                                         substring(current_type, 2, length(current_type)) || '[]';
+                            elsif ( current_type in ( 'date' ) )
+                                then
+                                    current_parameter := '''1-1-2000''::' || current_type;
+                            elsif ( current_type = 'bool' )
+                                then
+                                    current_parameter := 'false';
+                            else
+                                current_parameter := '''''::' || quote_ident(current_type_schema) || '.' ||
+                                                     quote_ident(current_type);
+                        end if;
+                        all_parameters = all_parameters || current_parameter;
+                        i := i + 1;
+                    else
+                        exit;
+                end if;
+            end loop;
+            begin
+                current_function_name :=
+                            quote_ident(current_function.nspname) || '.' || quote_ident(current_function.proname);
+                command_text := 'SELECT * FROM ' || current_function_name || '(' || all_parameters || ');';
+                execute command_text;
+                functions_count := functions_count + 1;
+            exception
+                when others then if ( failed_functions is null )
+                    then
+                        failed_functions := '';
+                end if;
+                if ( sqlstate in ( '42702','42704' ) )
+                    then
+                        failed_functions := failed_functions || E'\n' || command_text || E'\n' || sqlerrm || E'\n';
+                end if;
+            end;
+        end loop;
+    if ( failed_functions != '' )
+        then
+            message := E'The test if_functions_compile failed. The following functions failed to compile : \n\n' ||
+                       failed_functions;
+            result := false;
+            perform assert.fail(message);
+            return;
+    end if;
+end;
+$$ language plpgsql volatile;
+
+drop function if exists assert.if_views_compile(variadic _schema_name text[],out message text,out result boolean
+);
+create function assert.if_views_compile
+(variadic _schema_name text[],
+ out message text,
+ out result boolean
+)
+as $$
+declare
+    message unit_tests.test_result; declare
+    current_view record; declare
+    current_view_name text; declare
+    command_text text; declare
+    failed_views text;
+begin
+    for current_view in select
+                            table_name,
+                            table_schema
+                        from
+                            information_schema.views
+                        where
+                            table_schema = any ( $1 )
+        loop
+            begin
+                current_view_name :=
+                            quote_ident(current_view.table_schema) || '.' || quote_ident(current_view.table_name);
+                command_text := 'SELECT * FROM ' || current_view_name || ' LIMIT 1;';
+                raise notice '%', command_text;
+                execute command_text;
+            exception
+                when others then if ( failed_views is null )
+                    then
+                        failed_views := '';
+                end if;
+                failed_views := failed_views || E'\n' || command_text || E'\n' || sqlerrm || E'\n';
+            end;
+        end loop;
+    if ( failed_views != '' )
+        then
+            message := E'The test if_views_compile failed. The following views failed to compile : \n\n' ||
+                       failed_views;
+            result := false;
+            perform assert.fail(message);
+            return;
+    end if;
+    return;
+end;
+$$ language plpgsql volatile;
+
+
+drop function if exists unit_tests.add_dependency(p_dependent text,p_depends_on text
+);
+create function unit_tests.add_dependency
+(p_dependent text,
+ p_depends_on text
+) returns void
+as $$
+declare
+    dependent_ns text; declare
+    dependent_name text; declare
+    depends_on_ns text; declare
+    depends_on_name text; declare
+    arr text[];
+begin
+    if p_dependent like '%.%'
+        then
+            select
+                regexp_split_to_array(p_dependent, E'\\.')
+            into arr;
+            select
+                arr[1]
+            into dependent_ns;
+            select
+                arr[2]
+            into dependent_name;
+        else
+            select
+                null
+            into dependent_ns;
+            select
+                p_dependent
+            into dependent_name;
+    end if;
+    if p_depends_on like '%.%'
+        then
+            select
+                regexp_split_to_array(p_depends_on, E'\\.')
+            into arr;
+            select
+                arr[1]
+            into depends_on_ns;
+            select
+                arr[2]
+            into depends_on_name;
+        else
+            select
+                null
+            into depends_on_ns;
+            select
+                p_depends_on
+            into depends_on_name;
+    end if;
+    insert
+    into
+        unit_tests.dependencies
+    (dependent_ns,dependent_function_name,depends_on_ns,depends_on_function_name)
+    values
+    (dependent_ns,dependent_name,depends_on_ns,depends_on_name);
+end
+$$ language plpgsql strict;
+
+
+drop function if exists unit_tests.begin(verbosity integer,format text
+);
+create function unit_tests.begin
+(verbosity integer default 9,
+ format text default ''
+)
+    returns table
             (
-                'assert', 'unit_tests', 'information_schema'
-            ) 
-            AND proname NOT IN('if_functions_compile')
-        ) 
-    LOOP
-        current_parameters_count := array_upper(current_function.proargtypes, 1) + 1;
-
-        i := 0;
-        all_parameters := '';
-
-        LOOP
-        IF i < current_parameters_count THEN
-            IF i > 0 THEN
-                all_parameters := all_parameters || ', ';
-            END IF;
-
-            SELECT 
-                nspname, typname 
-            INTO 
-                current_type_schema, current_type 
-            FROM pg_type 
-            INNER JOIN pg_namespace 
-            ON pg_type.typnamespace = pg_namespace.oid
-            WHERE pg_type.oid = current_function.proargtypes[i];
-
-            IF(current_type IN('int4', 'int8', 'numeric', 'integer_strict', 'money_strict','decimal_strict', 'integer_strict2', 'money_strict2','decimal_strict2', 'money','decimal', 'numeric', 'bigint')) THEN
-                current_parameter := '1::' || current_type_schema || '.' || current_type;
-            ELSIF(substring(current_type, 1, 1) = '_') THEN
-                current_parameter := 'NULL::' || current_type_schema || '.' || substring(current_type, 2, length(current_type)) || '[]';
-            ELSIF(current_type in ('date')) THEN            
-                current_parameter := '''1-1-2000''::' || current_type;
-            ELSIF(current_type = 'bool') THEN
-                current_parameter := 'false';            
-            ELSE
-                current_parameter := '''''::' || quote_ident(current_type_schema) || '.' || quote_ident(current_type);
-            END IF;
-            
-            all_parameters = all_parameters || current_parameter;
-
-            i := i + 1;
-        ELSE
-            EXIT;
-        END IF;
-    END LOOP;
-
-    BEGIN
-        current_function_name := quote_ident(current_function.nspname)  || '.' || quote_ident(current_function.proname);
-        command_text := 'SELECT * FROM ' || current_function_name || '(' || all_parameters || ');';
-
-        EXECUTE command_text;
-        functions_count := functions_count + 1;
-
-        EXCEPTION WHEN OTHERS THEN
-            IF(failed_functions IS NULL) THEN 
-                failed_functions := '';
-            END IF;
-            
-            IF(SQLSTATE IN('42702', '42704')) THEN
-                failed_functions := failed_functions || E'\n' || command_text || E'\n' || SQLERRM || E'\n';                
-            END IF;
-    END;
-
-
-    END LOOP;
-
-    IF(failed_functions != '') THEN
-        message := E'The test if_functions_compile failed. The following functions failed to compile : \n\n' || failed_functions;
-        result := false;
-        PERFORM assert.fail(message);
-        RETURN;
-    END IF;
-END;
-$$
-LANGUAGE plpgsql 
-VOLATILE;
-
-DROP FUNCTION IF EXISTS assert.if_views_compile(VARIADIC _schema_name text[], OUT message text, OUT result boolean);
-CREATE FUNCTION assert.if_views_compile
-(
-    VARIADIC _schema_name text[],
-    OUT message text, 
-    OUT result boolean    
-)
-AS
-$$
-
-    DECLARE message                     test_result;
-    DECLARE current_view                RECORD;
-    DECLARE current_view_name           text;
-    DECLARE command_text                text;
-    DECLARE failed_views                text;
-BEGIN
-    FOR current_view IN 
-        SELECT table_name, table_schema 
-        FROM information_schema.views
-        WHERE table_schema = ANY($1) 
-    LOOP
-
-    BEGIN
-        current_view_name := quote_ident(current_view.table_schema)  || '.' || quote_ident(current_view.table_name);
-        command_text := 'SELECT * FROM ' || current_view_name || ' LIMIT 1;';
-
-        RAISE NOTICE '%', command_text;
-        
-        EXECUTE command_text;
-
-        EXCEPTION WHEN OTHERS THEN
-            IF(failed_views IS NULL) THEN 
-                failed_views := '';
-            END IF;
-
-            failed_views := failed_views || E'\n' || command_text || E'\n' || SQLERRM || E'\n';                
-    END;
-
-
-    END LOOP;
-
-    IF(failed_views != '') THEN
-        message := E'The test if_views_compile failed. The following views failed to compile : \n\n' || failed_views;
-        result := false;
-        PERFORM assert.fail(message);
-        RETURN;
-    END IF;
-
-    RETURN;
-END;
-$$
-LANGUAGE plpgsql 
-VOLATILE;
-
-
-DROP FUNCTION IF EXISTS unit_tests.add_dependency(p_dependent text, p_depends_on text);
-CREATE FUNCTION unit_tests.add_dependency(p_dependent text, p_depends_on text)
-  RETURNS void
-AS
-  $$
-    DECLARE dependent_ns text;
-    DECLARE dependent_name text;
-    DECLARE depends_on_ns text;
-    DECLARE depends_on_name text;
-    DECLARE arr text[];
-BEGIN
-    IF p_dependent LIKE '%.%' THEN
-        SELECT regexp_split_to_array(p_dependent, E'\\.') INTO arr;
-        SELECT arr[1] INTO dependent_ns;
-        SELECT arr[2] INTO dependent_name;
-    ELSE
-        SELECT NULL INTO dependent_ns;
-        SELECT p_dependent INTO dependent_name;
-    END IF;
-    IF p_depends_on LIKE '%.%' THEN
-        SELECT regexp_split_to_array(p_depends_on, E'\\.') INTO arr;
-        SELECT arr[1] INTO depends_on_ns;
-        SELECT arr[2] INTO depends_on_name;
-    ELSE
-        SELECT NULL INTO depends_on_ns;
-        SELECT p_depends_on INTO depends_on_name;
-    END IF;
-    INSERT INTO unit_tests.dependencies (dependent_ns, dependent_function_name, depends_on_ns, depends_on_function_name)
-    VALUES (dependent_ns, dependent_name, depends_on_ns, depends_on_name);
-END
-$$
-LANGUAGE plpgsql
-STRICT;
-
-
-DROP FUNCTION IF EXISTS unit_tests.begin(verbosity integer, format text);
-CREATE FUNCTION unit_tests.begin(verbosity integer DEFAULT 9, format text DEFAULT '')
-RETURNS TABLE(message text, result character(1))
-AS
-$$
-    DECLARE this                    record;
-    DECLARE _function_name          text;
-    DECLARE _sql                    text;
-    DECLARE _failed_dependencies    text[];
-    DECLARE _num_of_test_functions  integer;
-    DECLARE _should_skip            boolean;
-    DECLARE _message                text;
-    DECLARE _error                  text;
-    DECLARE _context                text;
-    DECLARE _result                 character(1);
-    DECLARE _test_id                integer;
-    DECLARE _status                 boolean;
-    DECLARE _total_tests            integer                         = 0;
-    DECLARE _failed_tests           integer                         = 0;
-    DECLARE _skipped_tests          integer                         = 0;
-    DECLARE _list_of_failed_tests   text;
-    DECLARE _list_of_skipped_tests  text;
-    DECLARE _started_from           TIMESTAMP WITHOUT TIME ZONE;
-    DECLARE _completed_on           TIMESTAMP WITHOUT TIME ZONE;
-    DECLARE _delta                  integer;
-    DECLARE _ret_val                text                            = '';
-    DECLARE _verbosity              text[]                          =
-                                    ARRAY['debug5', 'debug4', 'debug3', 'debug2', 'debug1', 'log', 'notice', 'warning', 'error', 'fatal', 'panic'];
-BEGIN
-    _started_from := clock_timestamp() AT TIME ZONE 'UTC';
-
-    IF(format='teamcity') THEN
-        RAISE INFO '##teamcity[testSuiteStarted name=''Plpgunit'' message=''Test started from : %'']', _started_from;
-    ELSE
-        RAISE INFO 'Test started from : %', _started_from;
-    END IF;
-
-    IF($1 > 11) THEN
-        $1 := 9;
-    END IF;
-
-    EXECUTE 'SET CLIENT_MIN_MESSAGES TO ' || _verbosity[$1];
-    RAISE WARNING 'CLIENT_MIN_MESSAGES set to : %' , _verbosity[$1];
-
-    SELECT nextval('unit_tests.tests_test_id_seq') INTO _test_id;
-
-    INSERT INTO unit_tests.tests(test_id)
-    SELECT _test_id;
-
-    DROP TABLE IF EXISTS temp_test_functions;
-    CREATE TEMP TABLE temp_test_functions AS
-    SELECT
-        nspname AS ns_name,
-        proname AS function_name,
-        p.oid as oid
-    FROM    pg_catalog.pg_namespace n
-    JOIN    pg_catalog.pg_proc p
-    ON      pronamespace = n.oid
-    WHERE
-        prorettype='test_result'::regtype::oid;
-
-    SELECT count(*) INTO _num_of_test_functions FROM temp_test_functions;
-
-    DROP TABLE IF EXISTS temp_dependency_levels;
-    CREATE TEMP TABLE temp_dependency_levels AS
-    WITH RECURSIVE dependency_levels(ns_name, function_name, oid, level) AS (
-      -- select functions without any dependencies
-      SELECT ns_name, function_name, tf.oid, 0 as level
-      FROM temp_test_functions tf
-      LEFT OUTER JOIN unit_tests.dependencies d ON tf.ns_name = d.dependent_ns AND tf.function_name = d.dependent_function_name
-      WHERE d.dependency_id IS NULL
-      UNION
-      -- add functions which depend on the previous level functions
-      SELECT d.dependent_ns, d.dependent_function_name, tf.oid, level + 1
-      FROM dependency_levels dl
-      JOIN unit_tests.dependencies d ON dl.ns_name = d.depends_on_ns AND dl.function_name LIKE d.depends_on_function_name
-      JOIN temp_test_functions tf ON d.dependent_ns = tf.ns_name AND d.dependent_function_name = tf.function_name
-      WHERE level < _num_of_test_functions -- don't follow circles for too long
-      )
-      SELECT ns_name, function_name, oid, max(level) as max_level
-      FROM dependency_levels
-      GROUP BY ns_name, function_name, oid;
-
-    IF (SELECT count(*) < _num_of_test_functions FROM temp_dependency_levels) THEN
-      SELECT array_to_string(array_agg(tf.ns_name || '.' || tf.function_name || '()'), ', ')
-      INTO _error
-      FROM temp_test_functions tf
-      LEFT OUTER JOIN temp_dependency_levels dl ON tf.oid = dl.oid
-        WHERE dl.oid IS NULL;
-      RAISE EXCEPTION 'Cyclic dependencies detected. Check the following test functions: %', _error;
-    END IF;
-
-    IF exists(SELECT * FROM temp_dependency_levels WHERE max_level = _num_of_test_functions) THEN
-      SELECT array_to_string(array_agg(ns_name || '.' || function_name || '()'), ', ')
-        INTO _error
-        FROM temp_dependency_levels
-        WHERE max_level = _num_of_test_functions;
-      RAISE EXCEPTION 'Cyclic dependencies detected. Check the dependency graph including following test functions: %', _error;
-    END IF;
-
-    FOR this IN
-      SELECT ns_name, function_name, max_level
-        FROM temp_dependency_levels
-        ORDER BY max_level, oid
-    LOOP
-        BEGIN
-            _status := false;
-            _total_tests := _total_tests + 1;
-
-            _function_name = this.ns_name|| '.' || this.function_name || '()';
-
-            SELECT array_agg(td.function_name)
-                INTO _failed_dependencies
-                FROM unit_tests.dependencies d
-                JOIN unit_tests.test_details td on td.function_name LIKE d.depends_on_ns || '.' || d.depends_on_function_name || '()'
-                WHERE d.dependent_ns = this.ns_name AND d.dependent_function_name = this.function_name
-                AND test_id = _test_id AND status = false;
-
-            SELECT _failed_dependencies IS NOT NULL INTO _should_skip;
-            IF NOT _should_skip THEN
-                _sql := 'SELECT ' || _function_name || ';';
-
-                RAISE NOTICE 'RUNNING TEST : %.', _function_name;
-
-                IF(format='teamcity') THEN
-                    RAISE INFO '##teamcity[testStarted name=''%'' message=''%'']', _function_name, _started_from;
-                ELSE
-                    RAISE INFO 'Running test % : %', _function_name, _started_from;
-                END IF;
-
-                EXECUTE _sql INTO _message;
-
-                IF _message = '' THEN
-                    _status := true;
-
-                    IF(format='teamcity') THEN
-                        RAISE INFO '##teamcity[testFinished name=''%'' message=''%'']', _function_name, clock_timestamp() AT TIME ZONE 'UTC';
-                    ELSE
-                        RAISE INFO 'Passed % : %', _function_name, clock_timestamp() AT TIME ZONE 'UTC';
-                    END IF;
-                ELSE
-                    IF(format='teamcity') THEN
-                        RAISE INFO '##teamcity[testFailed name=''%'' message=''%'']', _function_name, _message;
-                        RAISE INFO '##teamcity[testFinished name=''%'' message=''%'']', _function_name, clock_timestamp() AT TIME ZONE 'UTC';
-                    ELSE
-                        RAISE INFO 'Test failed % : %', _function_name, _message;
-                    END IF;
-                END IF;
-            ELSE
-                -- skipped test
-                _status := true;
-                _message = 'Failed dependencies: ' || array_to_string(_failed_dependencies, ',');
-                IF(format='teamcity') THEN
-                    RAISE INFO '##teamcity[testSkipped name=''%''] : %', _function_name, clock_timestamp() AT TIME ZONE 'UTC';
-                ELSE
-                    RAISE INFO 'Skipped % : %', _function_name, clock_timestamp() AT TIME ZONE 'UTC';
-                END IF;
-            END IF;
-
-            INSERT INTO unit_tests.test_details(test_id, function_name, message, status, executed, ts)
-            SELECT _test_id, _function_name, _message, _status, NOT _should_skip, clock_timestamp();
-
-            IF NOT _status THEN
+            message text,
+            result character(1)
+            )
+as $$
+declare
+    this record; declare
+    _function_name text; declare
+    _sql text; declare
+    _failed_dependencies text[]; declare
+    _num_of_test_functions integer; declare
+    _should_skip boolean; declare
+    _message text; declare
+    _error text; declare
+    _context text; declare
+    _result character(1); declare
+    _test_id integer; declare
+    _status boolean; declare
+    _total_tests integer = 0; declare
+    _failed_tests integer = 0; declare
+    _skipped_tests integer = 0; declare
+    _list_of_failed_tests text; declare
+    _list_of_skipped_tests text; declare
+    _started_from timestamp without time zone; declare
+    _completed_on timestamp without time zone; declare
+    _delta integer; declare
+    _ret_val text = ''; declare
+    _verbosity text[] = array ['debug5', 'debug4', 'debug3', 'debug2', 'debug1', 'log', 'notice', 'warning', 'error', 'fatal', 'panic'];
+begin
+    _started_from := clock_timestamp() at time zone 'UTC';
+    if ( format = 'teamcity' )
+        then
+            raise info '##teamcity[testSuiteStarted name=''Plpgunit'' message=''Test started from : %'']', _started_from;
+        else
+            raise info 'Test started from : %', _started_from;
+    end if;
+    if ( $1 > 11 )
+        then
+            $1 := 9;
+    end if;
+    execute 'SET CLIENT_MIN_MESSAGES TO ' || _verbosity[$1];
+    raise warning 'CLIENT_MIN_MESSAGES set to : %' , _verbosity[$1];
+    select
+        nextval('unit_tests.tests_test_id_seq')
+    into _test_id;
+    insert
+    into
+        unit_tests.tests(test_id)
+    select
+        _test_id;
+    drop table if exists temp_test_functions;
+    create temp table temp_test_functions
+    as
+        select
+            nspname as ns_name,
+            proname as function_name,
+            p.oid as oid
+        from
+            pg_catalog.pg_namespace n
+            join pg_catalog.pg_proc p
+                 on pronamespace = n.oid
+        where
+            prorettype = 'test_result'::regtype::oid;
+    select
+        count(*)
+    into _num_of_test_functions
+    from
+        temp_test_functions;
+    drop table if exists temp_dependency_levels;
+    create temp table temp_dependency_levels
+    as
+        with recursive
+            dependency_levels( ns_name,function_name,oid,level ) as (
+                -- select functions without any dependencies
+                select
+                    ns_name,
+                    function_name,
+                    tf.oid,
+                    0 as level
+                from
+                    temp_test_functions tf
+                    left outer join unit_tests.dependencies d
+                                    on tf.ns_name = d.dependent_ns and tf.function_name = d.dependent_function_name
+                where
+                    d.dependency_id is null
+                union
+                -- add functions which depend on the previous level functions
+                select
+                    d.dependent_ns,
+                    d.dependent_function_name,
+                    tf.oid,
+                    level + 1
+                from
+                    dependency_levels dl
+                    join unit_tests.dependencies d
+                         on dl.ns_name = d.depends_on_ns and dl.function_name like d.depends_on_function_name
+                    join temp_test_functions tf
+                         on d.dependent_ns = tf.ns_name and d.dependent_function_name = tf.function_name
+                where
+                    level < _num_of_test_functions -- don't follow circles for too long
+            )
+        select
+            ns_name,
+            function_name,
+            oid,
+            max(level) as max_level
+        from
+            dependency_levels
+        group by ns_name, function_name, oid;
+    if (
+        select
+            count(*) < _num_of_test_functions
+        from
+            temp_dependency_levels )
+        then
+            select
+                array_to_string(array_agg(tf.ns_name || '.' || tf.function_name || '()'), ', ')
+            into _error
+            from
+                temp_test_functions tf
+                left outer join temp_dependency_levels dl
+                                on tf.oid = dl.oid
+            where
+                dl.oid is null;
+            raise exception 'Cyclic dependencies detected. Check the following test functions: %', _error;
+    end if;
+    if exists(select *
+              from
+                  temp_dependency_levels
+              where
+                  max_level = _num_of_test_functions)
+        then
+            select
+                array_to_string(array_agg(ns_name || '.' || function_name || '()'), ', ')
+            into _error
+            from
+                temp_dependency_levels
+            where
+                max_level = _num_of_test_functions;
+            raise exception 'Cyclic dependencies detected. Check the dependency graph including following test functions: %', _error;
+    end if;
+    for this in select
+                    ns_name,
+                    function_name,
+                    max_level
+                from
+                    temp_dependency_levels
+                order by max_level, oid
+        loop
+            begin
+                _status := false;
+                _total_tests := _total_tests + 1;
+                _function_name = this.ns_name || '.' || this.function_name || '()';
+                select
+                    array_agg(td.function_name)
+                into _failed_dependencies
+                from
+                    unit_tests.dependencies d
+                    join unit_tests.test_details td
+                         on td.function_name like d.depends_on_ns || '.' || d.depends_on_function_name || '()'
+                where
+                    d.dependent_ns = this.ns_name and
+                    d.dependent_function_name = this.function_name and
+                    test_id = _test_id and
+                    status = false;
+                select
+                    _failed_dependencies is not null
+                into _should_skip;
+                if not _should_skip
+                    then
+                        _sql := 'SELECT ' || _function_name || ';';
+                        raise notice 'RUNNING TEST : %.', _function_name;
+                        if ( format = 'teamcity' )
+                            then
+                                raise info '##teamcity[testStarted name=''%'' message=''%'']', _function_name, _started_from;
+                            else
+                                raise info 'Running test % : %', _function_name, _started_from;
+                        end if;
+                        execute _sql into _message;
+                        if _message = ''
+                            then
+                                _status := true;
+                                if ( format = 'teamcity' )
+                                    then
+                                        raise info '##teamcity[testFinished name=''%'' message=''%'']', _function_name, clock_timestamp() at time zone 'UTC';
+                                    else
+                                        raise info 'Passed % : %', _function_name, clock_timestamp() at time zone 'UTC';
+                                end if;
+                            else
+                                if ( format = 'teamcity' )
+                                    then
+                                        raise info '##teamcity[testFailed name=''%'' message=''%'']', _function_name, _message;
+                                        raise info '##teamcity[testFinished name=''%'' message=''%'']', _function_name, clock_timestamp() at time zone 'UTC';
+                                    else
+                                        raise info 'Test failed % : %', _function_name, _message;
+                                end if;
+                        end if;
+                    else
+                        -- skipped test
+                        _status := true;
+                        _message = 'Failed dependencies: ' || array_to_string(_failed_dependencies, ',');
+                        if ( format = 'teamcity' )
+                            then
+                                raise info '##teamcity[testSkipped name=''%''] : %', _function_name, clock_timestamp() at time zone 'UTC';
+                            else
+                                raise info 'Skipped % : %', _function_name, clock_timestamp() at time zone 'UTC';
+                        end if;
+                end if;
+                insert
+                into
+                    unit_tests.test_details(test_id,function_name,message,status,executed,ts)
+                select
+                    _test_id,
+                    _function_name,
+                    _message,
+                    _status,
+                    not _should_skip,
+                    clock_timestamp();
+                if not _status
+                    then
+                        _failed_tests := _failed_tests + 1;
+                        raise warning 'TEST % FAILED.', _function_name;
+                        raise warning 'REASON: %', _message;
+                    elsif not _should_skip
+                        then
+                            raise notice 'TEST % COMPLETED WITHOUT ERRORS.', _function_name;
+                    else
+                        _skipped_tests := _skipped_tests + 1;
+                        raise warning 'TEST % SKIPPED, BECAUSE A DEPENDENCY FAILED.', _function_name;
+                end if;
+            exception
+                when others then get stacked diagnostics _context = pg_exception_context;
+                _message := 'ERR: [' || sqlstate || ']: ' || sqlerrm || E'\n    ' || split_part(_context, E'\n', 1);
+                insert
+                into
+                    unit_tests.test_details(test_id,function_name,message,status,executed)
+                select
+                    _test_id,
+                    _function_name,
+                    _message,
+                    false,
+                    true;
                 _failed_tests := _failed_tests + 1;
-                RAISE WARNING 'TEST % FAILED.', _function_name;
-                RAISE WARNING 'REASON: %', _message;
-            ELSIF NOT _should_skip THEN
-                RAISE NOTICE 'TEST % COMPLETED WITHOUT ERRORS.', _function_name;
-            ELSE
-                _skipped_tests := _skipped_tests + 1;
-                RAISE WARNING 'TEST % SKIPPED, BECAUSE A DEPENDENCY FAILED.', _function_name;
-            END IF;
-
-        EXCEPTION WHEN OTHERS THEN
-            GET STACKED DIAGNOSTICS _context = PG_EXCEPTION_CONTEXT;
-            _message := 'ERR: [' || SQLSTATE || ']: ' || SQLERRM || E'\n    ' || split_part(_context, E'\n', 1);
-            INSERT INTO unit_tests.test_details(test_id, function_name, message, status, executed)
-            SELECT _test_id, _function_name, _message, false, true;
-
-            _failed_tests := _failed_tests + 1;
-
-            RAISE WARNING 'TEST % FAILED.', _function_name;
-            RAISE WARNING 'REASON: %', _message;
-
-            IF(format='teamcity') THEN
-                RAISE INFO '##teamcity[testFailed name=''%'' message=''%'']', _function_name, _message;
-                RAISE INFO '##teamcity[testFinished name=''%'' message=''%'']', _function_name, clock_timestamp() AT TIME ZONE 'UTC';
-            ELSE
-                RAISE INFO 'Test failed % : %', _function_name, _message;
-            END IF;
-        END;
-    END LOOP;
-
-    _completed_on := clock_timestamp() AT TIME ZONE 'UTC';
+                raise warning 'TEST % FAILED.', _function_name;
+                raise warning 'REASON: %', _message;
+                if ( format = 'teamcity' )
+                    then
+                        raise info '##teamcity[testFailed name=''%'' message=''%'']', _function_name, _message;
+                        raise info '##teamcity[testFinished name=''%'' message=''%'']', _function_name, clock_timestamp() at time zone 'UTC';
+                    else
+                        raise info 'Test failed % : %', _function_name, _message;
+                end if;
+            end;
+        end loop;
+    _completed_on := clock_timestamp() at time zone 'UTC';
     _delta := extract(millisecond from _completed_on - _started_from)::integer;
+    update unit_tests.tests
+    set
+        total_tests = _total_tests,
+        failed_tests = _failed_tests,
+        skipped_tests = _skipped_tests,
+        completed_on = _completed_on
+    where
+        test_id = _test_id;
+    if format = 'junit'
+        then
+            select
+                    '<?xml version="1.0" encoding="UTF-8"?>' || xmlelement(name testsuites,
+                                                                           xmlelement(name testsuite, xmlattributes(
+                                                                                      'plpgunit' as name,
+                                                                                      t.total_tests as tests,
+                                                                                      t.failed_tests as failures, 0 as
+                                                                                      errors,
+                                                                                      EXTRACT(epoch from t.completed_on - t.started_on) as
+                                                                                      time),
+                                                                                      xmlagg(xmlelement(name testcase,
+                                                                                                        xmlattributes(
+                                                                                                        td.function_name as
+                                                                                                        name,
+                                                                                                        EXTRACT(epoch from td.ts - t.started_on) as
+                                                                                                        time), case
+                                                                                                                   when td.status = false
+                                                                                                                       then
+                                                                                                                       xmlelement(name failure, td.message)
+                                                                                                               end))))
+            into _ret_val
+            from
+                unit_tests.test_details td,
+                unit_tests.tests t
+            where
+                t.test_id = _test_id and
+                td.test_id = t.test_id
+            group by t.test_id;
+        else
+            with
+                failed_tests as (
+                    select
+                        row_number() over (order by id) as id,
+                        unit_tests.test_details.function_name,
+                        unit_tests.test_details.message
+                    from
+                        unit_tests.test_details
+                    where
+                        test_id = _test_id and
+                        status = false )
+            select
+                array_to_string(array_agg(f.id::text || '. ' || f.function_name || ' --> ' || f.message), E'\n')
+            into _list_of_failed_tests
+            from
+                failed_tests f;
+            with
+                skipped_tests as (
+                    select
+                        row_number() over (order by id) as id,
+                        unit_tests.test_details.function_name,
+                        unit_tests.test_details.message
+                    from
+                        unit_tests.test_details
+                    where
+                        test_id = _test_id and
+                        executed = false )
+            select
+                array_to_string(array_agg(s.id::text || '. ' || s.function_name || ' --> ' || s.message), E'\n')
+            into _list_of_skipped_tests
+            from
+                skipped_tests s;
+            _ret_val := _ret_val || 'Test completed on : ' || _completed_on::text || E' UTC. \nTotal test runtime: ' ||
+                        _delta::text || E' ms.\n';
+            _ret_val := _ret_val || E'\nTotal tests run : ' || COALESCE(_total_tests, '0')::text;
+            _ret_val := _ret_val || E'.\nPassed tests    : ' ||
+                        ( COALESCE(_total_tests, '0') - COALESCE(_failed_tests, '0') -
+                          COALESCE(_skipped_tests, '0') )::text;
+            _ret_val := _ret_val || E'.\nFailed tests    : ' || COALESCE(_failed_tests, '0')::text;
+            _ret_val := _ret_val || E'.\nSkipped tests   : ' || COALESCE(_skipped_tests, '0')::text;
+            _ret_val := _ret_val || E'.\n\nList of failed tests:\n' || '----------------------';
+            _ret_val := _ret_val || E'\n' || COALESCE(_list_of_failed_tests, '<NULL>')::text;
+            _ret_val := _ret_val || E'.\n\nList of skipped tests:\n' || '----------------------';
+            _ret_val := _ret_val || E'\n' || COALESCE(_list_of_skipped_tests, '<NULL>')::text;
+            _ret_val := _ret_val || E'\n' || E'End of plpgunit test.\n\n';
+    end if;
+    if _failed_tests > 0
+        then
+            _result := 'N';
+            if ( format = 'teamcity' )
+                then
+                    raise info '##teamcity[testStarted name=''Result'']';
+                    raise info '##teamcity[testFailed name=''Result'' message=''%'']', REPLACE(_ret_val, E'\n', ' |n');
+                    raise info '##teamcity[testFinished name=''Result'']';
+                    raise info '##teamcity[testSuiteFinished name=''Plpgunit'' message=''%'']', REPLACE(_ret_val, E'\n', '|n');
+                else
+                    raise info '%', _ret_val;
+            end if;
+        else
+            _result := 'Y';
+            if ( format = 'teamcity' )
+                then
+                    raise info '##teamcity[testSuiteFinished name=''Plpgunit'' message=''%'']', REPLACE(_ret_val, E'\n', '|n');
+                else
+                    raise info '%', _ret_val;
+            end if;
+    end if;
+    set CLIENT_MIN_MESSAGES to notice;
+    return query select _ret_val, _result;
+end
+$$ language plpgsql;
 
-    UPDATE unit_tests.tests
-    SET total_tests = _total_tests, failed_tests = _failed_tests, skipped_tests = _skipped_tests, completed_on = _completed_on
-    WHERE test_id = _test_id;
-
-    IF format='junit' THEN
-        SELECT
-            '<?xml version="1.0" encoding="UTF-8"?>'||
-            xmlelement
+drop function if exists unit_tests.begin_junit(verbosity integer
+);
+create function unit_tests.begin_junit
+(verbosity integer default 9
+)
+    returns table
             (
-                name testsuites,
-                xmlelement
-                (
-                    name                    testsuite,
-                    xmlattributes
-                    (
-                        'plpgunit'          AS name,
-                        t.total_tests       AS tests,
-                        t.failed_tests      AS failures,
-                        0                   AS errors,
-                        EXTRACT
-                        (
-                            EPOCH FROM t.completed_on - t.started_on
-                        )                   AS time
-                    ),
-                    xmlagg
-                    (
-                        xmlelement
-                        (
-                            name testcase,
-                            xmlattributes
-                            (
-                                td.function_name
-                                            AS name,
-                                EXTRACT
-                                (
-                                    EPOCH FROM td.ts - t.started_on
-                                )           AS time
-                            ),
-                            CASE
-                                WHEN td.status=false
-                                THEN
-                                    xmlelement
-                                    (
-                                        name failure,
-                                        td.message
-                                    )
-                                END
-                        )
-                    )
-                )
-            ) INTO _ret_val
-        FROM unit_tests.test_details td, unit_tests.tests t
-        WHERE
-            t.test_id=_test_id
-        AND
-            td.test_id=t.test_id
-        GROUP BY t.test_id;
-    ELSE
-        WITH failed_tests AS
-        (
-            SELECT row_number() OVER (ORDER BY id) AS id,
-                unit_tests.test_details.function_name,
-                unit_tests.test_details.message
-            FROM unit_tests.test_details
-            WHERE test_id = _test_id
-            AND status= false
-        )
-        SELECT array_to_string(array_agg(f.id::text || '. ' || f.function_name || ' --> ' || f.message), E'\n') INTO _list_of_failed_tests
-        FROM failed_tests f;
-
-        WITH skipped_tests AS
-        (
-            SELECT row_number() OVER (ORDER BY id) AS id,
-                unit_tests.test_details.function_name,
-                unit_tests.test_details.message
-            FROM unit_tests.test_details
-            WHERE test_id = _test_id
-            AND executed = false
-        )
-        SELECT array_to_string(array_agg(s.id::text || '. ' || s.function_name || ' --> ' || s.message), E'\n') INTO _list_of_skipped_tests
-        FROM skipped_tests s;
-
-        _ret_val := _ret_val ||  'Test completed on : ' || _completed_on::text || E' UTC. \nTotal test runtime: ' || _delta::text || E' ms.\n';
-        _ret_val := _ret_val || E'\nTotal tests run : ' || COALESCE(_total_tests, '0')::text;
-        _ret_val := _ret_val || E'.\nPassed tests    : ' || (COALESCE(_total_tests, '0') - COALESCE(_failed_tests, '0') - COALESCE(_skipped_tests, '0'))::text;
-        _ret_val := _ret_val || E'.\nFailed tests    : ' || COALESCE(_failed_tests, '0')::text;
-        _ret_val := _ret_val || E'.\nSkipped tests   : ' || COALESCE(_skipped_tests, '0')::text;
-        _ret_val := _ret_val || E'.\n\nList of failed tests:\n' || '----------------------';
-        _ret_val := _ret_val || E'\n' || COALESCE(_list_of_failed_tests, '<NULL>')::text;
-        _ret_val := _ret_val || E'.\n\nList of skipped tests:\n' || '----------------------';
-        _ret_val := _ret_val || E'\n' || COALESCE(_list_of_skipped_tests, '<NULL>')::text;
-        _ret_val := _ret_val || E'\n' || E'End of plpgunit test.\n\n';
-    END IF;
-
-    IF _failed_tests > 0 THEN
-        _result := 'N';
-
-        IF(format='teamcity') THEN
-            RAISE INFO '##teamcity[testStarted name=''Result'']';
-            RAISE INFO '##teamcity[testFailed name=''Result'' message=''%'']', REPLACE(_ret_val, E'\n', ' |n');
-            RAISE INFO '##teamcity[testFinished name=''Result'']';
-            RAISE INFO '##teamcity[testSuiteFinished name=''Plpgunit'' message=''%'']', REPLACE(_ret_val, E'\n', '|n');
-        ELSE
-            RAISE INFO '%', _ret_val;
-        END IF;
-    ELSE
-        _result := 'Y';
-
-        IF(format='teamcity') THEN
-            RAISE INFO '##teamcity[testSuiteFinished name=''Plpgunit'' message=''%'']', REPLACE(_ret_val, E'\n', '|n');
-        ELSE
-            RAISE INFO '%', _ret_val;
-        END IF;
-    END IF;
-
-    SET CLIENT_MIN_MESSAGES TO notice;
-
-    RETURN QUERY SELECT _ret_val, _result;
-END
-$$
-LANGUAGE plpgsql;
-
-DROP FUNCTION IF EXISTS unit_tests.begin_junit(verbosity integer);
-CREATE FUNCTION unit_tests.begin_junit(verbosity integer DEFAULT 9)
-RETURNS TABLE(message text, result character(1))
-AS
-$$
-BEGIN
-    RETURN QUERY 
-    SELECT * FROM unit_tests.begin($1, 'junit');
-END
-$$
-LANGUAGE plpgsql;
+            message text,
+            result character(1)
+            )
+as $$
+begin
+    return query select *
+                 from
+                     unit_tests.begin($1, 'junit');
+end
+$$ language plpgsql;
 
 -- version of begin that will raise if any tests have failed
 -- this will cause psql to return nonzeo exit code so the build/script can be halted
-CREATE OR REPLACE FUNCTION unit_tests.begin_psql(verbosity integer default 9, format text default '')
-RETURNS VOID AS $$
-    DECLARE
-        _msg text;
-        _res character(1);
-    BEGIN
-        SELECT * INTO _msg, _res
-            FROM unit_tests.begin(verbosity, format)
-        ;
-        IF(_res != 'Y') THEN
-            RAISE EXCEPTION 'Tests failed [%]', _msg;
-        END IF;
-    END
-$$
-LANGUAGE plpgsql;
+create or replace function unit_tests.begin_psql
+(verbosity integer default 9,
+ format text default ''
+) returns void
+as $$
+declare
+    _msg text;
+    _res character(1);
+begin
+    select *
+    into _msg, _res
+    from
+        unit_tests.begin(verbosity, format);
+    if ( _res != 'Y' )
+        then
+            raise exception 'Tests failed [%]', _msg;
+    end if;
+end
+$$ language plpgsql;
 

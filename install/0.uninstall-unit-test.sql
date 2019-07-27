@@ -1,4 +1,3 @@
-
 /********************************************************************************
 The PostgreSQL License
 
@@ -20,7 +19,6 @@ FOR A PARTICULAR PURPOSE. THE SOFTWARE PROVIDED HEREUNDER IS ON AN "AS IS" BASIS
 AND MIX OPEN FOUNDATION HAS NO OBLIGATIONS TO PROVIDE MAINTENANCE, SUPPORT, 
 UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
 ***********************************************************************************/
-
-DROP SCHEMA IF EXISTS assert CASCADE;
-DROP SCHEMA IF EXISTS unit_tests CASCADE;
-DROP DOMAIN IF EXISTS public.test_result CASCADE;
+drop schema if exists assert cascade;
+drop schema if exists unit_tests cascade;
+drop domain if exists public.test_result cascade;
